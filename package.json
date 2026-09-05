@@ -1,0 +1,18 @@
+{
+  "name": "ai-commerce-image-studio",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test",
+    "check": "node --check server/index.js && node --check app.js && node --test"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "openai": "^7.10.0",
+    "sharp": "^0.35.4"
+  }
+}

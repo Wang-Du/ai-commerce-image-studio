@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="为一个商品同时建立多种类型和尺寸的 AI 商品图生成任务。" />
+  <title>AI 商品图生成器｜电商创意工作台</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="./file-open-guard.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div class="brand-area">
+        <a class="brand" href="#" aria-label="AI 商品图生成器首页">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5-6.5-2L10 9l2-6.5Z"/></svg>
+          </span>
+          <span><strong>AI 商品图生成器</strong><small>电商创意工作台</small></span>
+        </a>
+        <nav class="main-nav" aria-label="主导航">
+          <button class="nav-item is-active" data-view-target="workspace">创意工作台</button>
+          <button class="nav-item" data-view-target="library">素材库</button>
+          <button class="nav-item" data-view-target="history">生成记录</button>
+        </nav>
+      </div>
+      <div class="header-actions">
+        <span class="save-state"><i></i><span id="saveStateText">自动保存</span></span>
+        <span class="demo-badge" id="modelModeBadge">正在连接</span>
+        <button class="model-settings-button" id="openSettingsButton">
+          <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>模型设置
+        </button>
+        <button class="icon-button" id="helpButton" aria-label="帮助中心">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.4 2.4 0 1 1 3.1 2.3c-.8.3-.8 1-.8 1.7M12 17h.01"/></svg>
+        </button>
+        <button class="icon-button" data-view-target="library" aria-label="作品管理">
+          <svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="workspace" id="workspaceView" data-view-panel="workspace">
+      <aside class="control-panel">
+        <div class="control-scroll">
+          <h1>为一个商品建立多种出图任务</h1>
+          <p class="intro">每个任务独立设置用途、尺寸和数量，可以一起生成，也可以单独重做。</p>
+
+          <section class="source-card" aria-labelledby="sourceTitle">
+            <div class="source-thumb"><img id="sourceImage" src="./assets/舒缓精华产品图.png" alt="舒缓修护精华演示商品图" /></div>
+            <div class="source-info"><strong id="sourceTitle">正在读取素材</strong><span id="sourceMeta">连接本地素材库…</span></div>
+            <button class="text-button" id="replaceImageButton">替换</button>
+            <input id="fileInput" type="file" accept="image/*" hidden />
+          </section>
+
+          <div class="section-heading">
+            <div><h2>生成任务</h2><span id="taskSummary">3 个任务 · 3 张图</span></div>
+            <button class="add-button" id="addTaskButton">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>新增任务
+            </button>
+          </div>
+          <div class="task-list" id="taskList" aria-label="生成任务列表"></div>
+
+          <section class="task-editor" aria-labelledby="editorTitle">
+            <div class="editor-heading">
+              <div><h2 id="editorTitle">任务设置</h2><span id="editorSubtitle"></span></div>
+              <button class="more-button" id="taskMenuButton" aria-label="任务菜单" aria-expanded="false" aria-controls="taskMenu">
+                <svg viewBox="0 0 24 24" class="solid"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+              </button>
+              <div class="task-menu" id="taskMenu" hidden>
+                <button id="duplicateTaskButton">复制当前任务</button>
+                <button class="danger" id="deleteTaskButton">删除当前任务</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="field-label"><label>图片类型</label><span>当前任务</span></div>
+              <div class="type-segment" id="typeChoices"></div>
+            </div>
+            <div class="field">
+              <div class="field-label"><label>输出尺寸</label><span id="pixelHint"></span></div>
+              <div class="ratio-grid" id="ratioChoices"></div>
+            </div>
+            <div class="field">
+              <div class="field-label"><label for="promptInput">生成提示词</label><span>仅作用于当前任务</span></div>
+              <textarea id="promptInput" maxlength="300"></textarea>
+              <div class="prompt-tools"><span id="promptCount">0 / 300</span><button id="resetPromptButton">恢复推荐词</button></div>
+            </div>
+            <div class="quantity-row">
+              <div><strong>生成数量</strong><span>单个任务最多生成 4 张</span></div>
+              <div class="stepper">
+                <button id="decreaseButton" aria-label="减少生成数量"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+                <output id="quantityValue">1</output>
+                <button id="increaseButton" aria-label="增加生成数量"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="control-footer">
+          <div class="generation-summary"><span>预计消耗 <strong id="creditCount">3</strong> 次生成</span><span>一次提交全部任务</span></div>
+          <button class="generate-button" id="generateAllButton">
+            <svg viewBox="0 0 24 24"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5-6.5-2L10 9l2-6.5Z"/></svg>
+            <span id="generateLabel">一键生成</span><em id="imageCount">3 张</em>
+          </button>
+        </footer>
+      </aside>
+
+      <section class="result-panel">
+        <header class="result-header">
+          <div><h2 id="canvasTitle">创意画布</h2><p>在一个视图中比较不同类型和比例，选择任务 Tab 可单独查看。</p></div>
+          <button class="secondary-button" id="exportAllButton">
+            <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 20h14"/></svg>导出全部
+          </button>
+        </header>
+
+        <div class="queue-notice" role="status">
+          <div><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5zM9 9h6M9 13h6"/></svg><span id="queueText">3 个任务已就绪 · 点击一次生成 3 张图片</span></div>
+          <span>尺寸和提示词按任务独立保存</span>
+        </div>
+
+        <nav class="result-tabs" id="resultTabs" aria-label="结果筛选"></nav>
+        <div class="gallery-heading">
+          <div class="gallery-title"><i id="gallerySignal"></i><div><h3 id="galleryTitle">全部任务结果</h3><p id="galleryDescription"></p></div></div>
+          <div class="gallery-meta"><span id="ratioMeta"></span><span id="pixelMeta"></span><span id="countMeta"></span></div>
+        </div>
+        <div class="gallery" id="gallery"></div>
+      </section>
+    </div>
+
+    <section class="secondary-view" id="libraryView" data-view-panel="library" hidden>
+      <header class="secondary-header">
+        <div><h1>素材库</h1><p>管理当前商品素材，选择素材后返回工作台继续创建任务。</p></div>
+        <button class="secondary-button" id="libraryImportButton">
+          <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>导入素材
+        </button>
+      </header>
+      <div class="library-toolbar"><span>全部素材</span><span id="libraryCount">1 个素材</span></div>
+      <div class="asset-library-grid" id="assetLibraryGrid"></div>
+    </section>
+
+    <section class="secondary-view" id="historyView" data-view-panel="history" hidden>
+      <header class="secondary-header">
+        <div><h1>生成记录</h1><p>记录每次批量生成的任务数量、图片数量和运行模式。</p></div>
+        <button class="secondary-button" id="clearHistoryButton">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M8 10v7m4-7v7m4-7v7M6 7l1 13h10l1-13"/></svg>清空记录
+        </button>
+      </header>
+      <div class="history-summary"><div><span>累计批次</span><strong id="historyBatchCount">0</strong></div><div><span>累计图片</span><strong id="historyImageCount">0</strong></div><div><span>最近模式</span><strong id="historyMode">—</strong></div></div>
+      <div class="history-list" id="historyList"></div>
+      <div class="empty-history" id="emptyHistory">
+        <span class="empty-icon"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg></span>
+        <h2>还没有生成记录</h2><p>回到创意工作台完成一次生成，这里会保存批次摘要。</p>
+        <button class="primary-small" data-view-target="workspace">开始创建任务</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="drawer-backdrop" id="settingsBackdrop" hidden></div>
+  <aside class="settings-drawer" id="settingsDrawer" aria-labelledby="settingsTitle" aria-hidden="true">
+    <header class="drawer-header"><div><h2 id="settingsTitle">AI 来源与模型设置</h2><p>可以直连官方或第三方中转 API，也可以使用本机 Codex。</p></div><button class="icon-button" id="closeSettingsButton" aria-label="关闭模型设置"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+    <div class="drawer-content">
+      <section class="settings-section"><div class="settings-label"><strong>选择 AI 来源</strong><span>只影响之后的任务</span></div>
+        <div class="source-grid" id="sourceGrid">
+          <button class="source-choice" data-ai-source="openai"><span class="source-icon"><svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 1 4 4v1a4 4 0 0 1 3 6.7l-.8.8a4 4 0 0 1-5.8 4.5H11a4 4 0 0 1-3.7-2.5l-.5-1.2A4 4 0 0 1 5 9.5l1-.6A4 4 0 0 1 12 3Z"/></svg></span><span><strong>OpenAI API</strong><small>自动出图，结果直接回到画布</small></span><i>API</i></button>
+          <button class="source-choice" data-ai-source="codex"><span class="source-icon"><svg viewBox="0 0 24 24"><path d="M8 4h8a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4Z"/><path d="M9 9 7 12l2 3m6-6 2 3-2 3m-4 1 2-8"/></svg></span><span><strong>Codex 桌面 Agent</strong><small id="agentSourceStatus">未检测 · 测试后可一键生图</small></span><i>自动</i></button>
+          <button class="source-choice source-choice-quiet" data-ai-source="demo"><span class="source-icon"><svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></svg></span><span><strong>演示模式</strong><small>只验证交互和尺寸，不生成新图片</small></span><i>演示</i></button>
+        </div>
+      </section>
+      <section class="settings-section" id="openAiSettingsSection">
+        <label class="settings-field"><span>Base URL</span><input id="baseUrlInput" type="url" spellcheck="false" placeholder="https://api.openai.com/v1" /><small>支持官方或 OpenAI 兼容中转站，需包含 /v1。</small></label>
+        <label class="settings-field"><span>OpenAI API Key</span><input id="apiKeyInput" type="password" autocomplete="new-password" placeholder="sk-…" /></label>
+        <label class="settings-field"><span>图片模型</span><input id="imageModelInput" list="imageModelOptions" spellcheck="false" placeholder="gpt-image-2" /><small>可选常用模型，也可直接输入中转站的模型 ID。</small></label>
+        <datalist id="imageModelOptions"><option value="gpt-image-2"><option value="gpt-image-1.5"><option value="gpt-image-1-mini"><option value="gpt-image-1"></datalist>
+        <label class="settings-field"><span>生成质量</span><select id="qualityInput"><option value="low">草稿 · 更快</option><option value="medium">标准 · 推荐</option><option value="high">精细 · 更清晰</option></select></label>
+      </section>
+      <section class="assisted-source-note" id="assistedSourceSection" hidden>
+        <svg viewBox="0 0 24 24"><path d="M4 5h16v11H4zM8 20h8m-4-4v4"/><path d="m8 10 2 2 5-5"/></svg>
+        <div><strong id="assistedSourceTitle">桌面 AI 协作</strong><p id="assistedSourceDescription">工作台会整理商品素材、提示词、尺寸和数量；生成后将结果导回即可。</p></div>
+      </section>
+      <div class="security-note" id="securityNote"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.9 8.4 7 10 4.1-1.6 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg><div><strong>密钥只留在本机</strong><p>保存后网页只能看到“已配置”，无法读取或显示完整密钥。</p></div></div>
+      <button class="test-connection-button" id="testConnectionButton">测试连接</button>
+      <div class="connection-status" id="connectionStatus" role="status">尚未测试连接</div>
+    </div>
+    <footer class="drawer-footer"><button class="secondary-button" id="cancelSettingsButton">取消</button><button class="save-settings-button" id="saveSettingsButton">保存设置</button></footer>
+  </aside>
+
+  <div class="dialog-backdrop" id="handoffBackdrop" hidden></div>
+  <section class="workflow-dialog" id="handoffDialog" role="dialog" aria-modal="true" aria-labelledby="handoffTitle" hidden>
+    <header class="workflow-dialog-header"><div><h2 id="handoffTitle">桌面 AI 协作任务</h2><p id="handoffSubtitle">复制任务包，在桌面 AI 中生成，再把图片导回。</p></div><button class="icon-button" id="closeHandoffButton" aria-label="关闭协作任务"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+    <div class="workflow-dialog-body">
+      <div class="handoff-overview"><span class="source-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg></span><div><strong id="handoffSourceName">Codex 桌面 Agent</strong><span id="handoffCount">3 个任务 · 3 张结果</span></div><a id="downloadSourceAsset" href="#" download>下载商品素材</a></div>
+      <section class="handoff-block"><div class="handoff-block-title"><div><strong>任务提示词包</strong><span>已经包含商品保真、尺寸和顺序要求</span></div><div class="handoff-inline-actions"><button id="copyHandoffButton">复制全部</button><button id="downloadHandoffButton">下载 .md</button></div></div><textarea id="handoffPromptText" readonly></textarea></section>
+      <section class="handoff-block"><div class="handoff-block-title"><div><strong>按编号导回图片</strong><span id="handoffImportHint">选择 3 张图片，顺序要与任务包一致</span></div><button id="chooseResultsButton">选择图片</button></div><input id="resultFilesInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden /><div class="import-slots" id="importSlots"></div></section>
+    </div>
+    <footer class="workflow-dialog-footer"><span id="handoffFooterStatus">还未选择结果图片</span><button class="secondary-button" id="cancelHandoffButton">稍后处理</button><button class="save-settings-button" id="importResultsButton" disabled>导入并完成任务</button></footer>
+  </section>
+
+  <div class="dialog-backdrop" id="helpBackdrop" hidden></div>
+  <section class="help-dialog" id="helpDialog" role="dialog" aria-modal="true" aria-labelledby="helpTitle" hidden>
+    <header class="workflow-dialog-header"><div><h2 id="helpTitle">怎么完成一次商品图任务</h2><p>有 API 和没有 API 都能使用。</p></div><button class="icon-button" id="closeHelpButton" aria-label="关闭帮助"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+    <div class="help-body"><ol><li><strong>导入商品素材</strong><span>在素材库选择清晰的 JPG、PNG 或 WebP 商品图。</span></li><li><strong>建立独立任务</strong><span>每个任务分别设置图片类型、输出尺寸、提示词和数量。</span></li><li><strong>选择 AI 来源</strong><span>使用官方/中转 API 或已通过连通性测试的 Codex 直接生图。</span></li><li><strong>一键生成</strong><span>一次提交所有任务，结果会按各自目标尺寸保存并进入生成记录。</span></li></ol></div>
+  </section>
+
+  <div class="dialog-backdrop" id="historyDetailBackdrop" hidden></div>
+  <section class="workflow-dialog history-detail-dialog" id="historyDetailDialog" role="dialog" aria-modal="true" aria-labelledby="historyDetailTitle" hidden>
+    <header class="workflow-dialog-header"><div><h2 id="historyDetailTitle">生成批次详情</h2><p id="historyDetailSubtitle">查看本次任务参数和完整结果。</p></div><button class="icon-button" id="closeHistoryDetailButton" aria-label="关闭生成记录详情"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+    <div class="history-detail-body" id="historyDetailBody"></div>
+    <footer class="history-detail-footer"><span id="historyDetailStatus"></span><button class="save-settings-button" id="reuseHistoryDetailButton">再次使用这批任务</button></footer>
+  </section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
