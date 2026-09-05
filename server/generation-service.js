@@ -13,7 +13,7 @@ function validateTasks(tasks) {
     throw appError('INVALID_TASKS', '每次需要提交 1 到 5 个生成任务')
   }
   return tasks.map((task) => {
-    const quantity = Number(task.quantity)
+    const quantity = Number(task?.quantity)
     if (!task?.id || !Number.isInteger(quantity) || quantity < 1 || quantity > 4) {
       throw appError('INVALID_TASK', '每个任务必须包含 ID，且生成数量为 1 到 4 张')
     }
@@ -98,15 +98,30 @@ export function createGenerationService({
     }
   }
 
+  async function prepareBatch({ assetId, tasks } = {}) {
+    const normalizedTasks = validateTasks(tasks)
+    const asset = await assetStore.get(String(assetId || ''))
+    if (!asset) throw appError('ASSET_NOT_FOUND', '请选择一个有效的商品素材', 404)
+    const sourceBuffer = await assetStore.readBuffer(asset.id)
+    const settings = await settingsStore.getPrivate()
+    if (settings.source === 'openai' && !settings.apiKey) {
+      throw appError('MODEL_NOT_CONFIGURED', '请先在模型设置中填写并保存 API Key', 409)
+    }
+    return { normalizedTasks, asset, sourceBuffer, settings }
+  }
+
   return {
-    async generateBatch({ assetId, tasks }) {
-      const normalizedTasks = validateTasks(tasks)
-      const asset = await assetStore.get(String(assetId || ''))
-      if (!asset) throw appError('ASSET_NOT_FOUND', '请选择一个有效的商品素材', 404)
-      const sourceBuffer = await assetStore.readBuffer(asset.id)
-      const settings = await settingsStore.getPrivate()
-      if (settings.source === 'openai' && !settings.apiKey) {
-        throw appError('MODEL_NOT_CONFIGURED', '请先在模型设置中填写并保存 API Key', 409)
+    prepareBatch,
+    async generateBatch(payload, { prepared, batchId, onProgress = async () => {} } = {}) {
+      const { normalizedTasks, asset, sourceBuffer, settings } = prepared || await prepareBatch(payload)
+      const completed = []
+      async function report(outcome) {
+        completed.push(outcome)
+        await onProgress({
+          results: completed.filter((item) => item.ok).map((item) => item.value),
+          failures: completed.filter((item) => !item.ok).map((item) => item.value),
+        })
+        return outcome
       }
 
       await fs.mkdir(generatedDir, { recursive: true })
@@ -155,9 +170,10 @@ export function createGenerationService({
               },
             }
           }
-        }))
+        }).map((operation) => operation.then(report)))
       } else {
         outcomes = await runWithConcurrency(jobs, 2, async ({ task, index }) => {
+        let outcome
         try {
           const modelBytes = settings.source === 'openai'
             ? await provider.edit({
@@ -168,12 +184,12 @@ export function createGenerationService({
               quality: settings.quality,
             })
             : sourceBuffer
-          return {
+          outcome = {
             ok: true,
             value: await saveOutput(modelBytes, task, { index, mode: settings.source === 'openai' ? 'api' : 'demo' }),
           }
         } catch (error) {
-          return {
+          outcome = {
             ok: false,
             value: {
               taskId: task.id,
@@ -183,11 +199,12 @@ export function createGenerationService({
             },
           }
         }
+        return report(outcome)
         })
       }
 
       const batch = {
-        id: crypto.randomUUID(),
+        id: batchId || crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         mode: settings.source === 'openai' ? 'api' : settings.source === 'codex' ? 'agent' : 'demo',
         source: settings.source,

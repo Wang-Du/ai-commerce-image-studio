@@ -27,6 +27,7 @@
       <div class="header-actions">
         <span class="save-state"><i></i><span id="saveStateText">自动保存</span></span>
         <span class="demo-badge" id="modelModeBadge">正在连接</span>
+        <button class="model-settings-button" id="backgroundJobsButton" data-view-target="jobs">后台任务</button>
         <button class="model-settings-button" id="openSettingsButton">
           <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>模型设置
         </button>
@@ -126,6 +127,16 @@
         <div class="gallery" id="gallery"></div>
       </section>
     </div>
+
+    <section class="secondary-view" id="backgroundJobsView" data-view-panel="jobs" hidden>
+      <header class="secondary-header">
+        <div><h1>后台任务</h1><p>每批保留提交时的商品和参数，按提交顺序生成。完成后可逐张下载。</p></div>
+        <button class="secondary-button" data-view-target="workspace">继续创建任务</button>
+      </header>
+      <p class="background-jobs-status" id="backgroundJobsStatus" role="status">正在读取后台任务…</p>
+      <p class="background-jobs-note">刷新或关闭网页不会中断任务。请保持电脑运行、本地启动窗口开启；退出本地服务会中断未完成的任务。</p>
+      <div id="backgroundJobsList" class="background-jobs-list"></div>
+    </section>
 
     <section class="secondary-view" id="libraryView" data-view-panel="library" hidden>
       <header class="secondary-header">

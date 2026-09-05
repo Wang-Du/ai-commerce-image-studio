@@ -4,7 +4,7 @@
 
 ## 下载即用
 
-**[下载作品集完整 ZIP（v1.0.0）](https://github.com/Amentman/ai-commerce-image-studio/releases/download/v1.0.0/ai-commerce-image-studio-v1.0.0.zip)** · [查看版本说明](https://github.com/Amentman/ai-commerce-image-studio/releases/tag/v1.0.0)
+**[下载作品集完整 ZIP（v1.1.0）](https://github.com/Amentman/ai-commerce-image-studio/releases/download/v1.1.0/ai-commerce-image-studio-v1.1.0.zip)** · [查看版本说明](https://github.com/Amentman/ai-commerce-image-studio/releases/tag/v1.1.0)
 
 安装 Node.js 20 或更高版本后，解压 ZIP，在 macOS 双击 `启动 AI 商品图生成器.command`。首次启动会自动安装依赖并打开工作台；没有 API 时可先选择“演示模式”体验完整流程。
 
@@ -13,6 +13,7 @@
 ## 已实现能力
 
 - 同一商品一次提交多个独立出图任务，每个任务单独选择类型、尺寸、提示词和 1–4 张数量。
+- 后台多批次队列：上一批生成时，可以换商品、编辑任务并继续提交下一批，刷新网页也能恢复进度。
 - 支持 OpenAI 官方接口、兼容中转站的 Base URL + API Key + 自定义模型 ID，以及本机 Codex 桌面 Agent。
 - 素材库、生成进度、失败提示、单任务重做、生成记录详情、整批导出和单图下载形成完整闭环。
 - 下载文件会统一处理为任务选择的准确像素；API Key、素材和历史只保存在本机并排除出 Git。
@@ -78,6 +79,14 @@ API Key 只保存在本项目的 `.local/settings.json` 中，文件权限为当
 
 界面中的目标尺寸就是最终下载尺寸。服务会把模型输出转换为选中的准确像素，例如 900×1200 或 1080×1350。
 
+### 生成时继续工作
+
+提交后无需停在画布等待。可以切换素材库、生成记录和模型设置，也可以继续新增或编辑任务，再点击“继续提交新一批”。每次点击会提交当前全部任务；只想生成一个新任务时，使用对应卡片的“单独生成”。
+
+右上角“后台任务”显示每批的排队状态、已处理张数、结果与失败原因。多批任务按提交顺序依次执行，最多同时保留 20 批未完成任务。每批固定使用提交时的商品、参数和模型设置；后续修改不会影响已提交批次，旧结果也不会覆盖已修改的草稿。
+
+刷新或关闭网页不会中断后台生成，但**必须保持电脑运行和本地启动服务开启**。关闭终端、退出服务或关机后，不会自动重新调用付费模型；重新启动时，未完成的任务会标记为中断，已有图片保留，可检查后手动重做。
+
 ## 演示模式
 
 演示模式不调用外部模型，而是用当前商品素材生成不同尺寸的本地结果，用于检查交互和尺寸流程；结果会明确标记为“演示结果”，不会冒充 AI 生成图。
@@ -99,6 +108,7 @@ AI商品图生成器/
 │   ├── openai-image-provider.js  GPT Image 2 适配器
 │   ├── codex-image-provider.js Codex CLI 批量生图适配器
 │   ├── generation-service.js 生成、并发与准确尺寸处理
+│   ├── generation-queue.js   后台批次排队、参数快照与进度持久化
 │   ├── desktop-agent-service.js Codex 桌面 Agent 连通性检测
 │   ├── asset-store.js        素材持久化
 │   ├── history-repository.js 历史记录持久化

@@ -19,3 +19,27 @@ export function beginTaskGeneration({ tasks, results = [], failures = [], taskId
     failures: failures.filter((failure) => !requestedIds.has(failure.taskId)),
   }
 }
+
+function sameTask(left, right) {
+  return ['id', 'type', 'ratio', 'width', 'height', 'quantity'].every((key) => left[key] === right[key])
+    && String(left.prompt || '') === String(right.prompt || '')
+}
+
+// Jobs are newest first. A task ID alone is not enough: the user may have edited it or changed products.
+export function reconcileBackgroundJobs({ tasks, assetId, jobs, results = [], failures = [] }) {
+  let nextResults = [...results]
+  let nextFailures = [...failures]
+  const nextTasks = tasks.map((task) => {
+    const job = jobs.find((item) => item.assetId === assetId && item.tasks.some((saved) => sameTask(saved, task)))
+    if (!job) return task
+    const outputs = (job.results || []).filter((item) => item.taskId === task.id)
+    const errors = (job.failures || []).filter((item) => item.taskId === task.id)
+    nextResults = [...nextResults.filter((item) => item.taskId !== task.id), ...outputs]
+    nextFailures = [...nextFailures.filter((item) => item.taskId !== task.id), ...errors]
+    const progress = Math.round((outputs.length + errors.length) / task.quantity * 100)
+    const status = job.status === 'queued' ? 'queued' : job.status === 'running' ? 'generating'
+      : outputs.length >= task.quantity ? 'done' : outputs.length ? 'partial' : 'error'
+    return { ...task, status, progress }
+  })
+  return { tasks: nextTasks, results: nextResults, failures: nextFailures }
+}

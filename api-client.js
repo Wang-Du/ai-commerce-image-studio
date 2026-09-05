@@ -89,6 +89,10 @@ export class ApiGatewayClient {
 
   async generateBatch(payload) { return this.request('/api/generate', { method: 'POST', body: payload }) }
 
+  async submitGeneration(payload) { return this.request('/api/jobs', { method: 'POST', body: payload }) }
+
+  async listGenerationJobs() { return this.request('/api/jobs') }
+
   async createHandoff(payload) { return this.request('/api/handoffs', { method: 'POST', body: payload }) }
 
   async importResults(payload) { return this.request('/api/import-results', { method: 'POST', body: payload }) }

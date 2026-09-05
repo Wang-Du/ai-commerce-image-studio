@@ -12,6 +12,7 @@ export function createApp({
   assetStore,
   historyRepository,
   generationService,
+  generationQueue,
   desktopAgentService,
   providerFactory,
   publicDir,
@@ -146,7 +147,9 @@ export function createApp({
 
   app.delete('/api/history', async (_request, response, next) => {
     try {
+      const recordIds = (await historyRepository.list()).map((record) => record.id)
       await historyRepository.clear()
+      await generationQueue?.forgetHistory(recordIds)
       response.status(204).end()
     } catch (error) {
       next(error)
@@ -157,6 +160,7 @@ export function createApp({
     try {
       const removed = await historyRepository.remove(request.params.id)
       if (!removed) return response.status(404).json({ code: 'HISTORY_NOT_FOUND', message: '生成记录不存在' })
+      await generationQueue?.forgetHistory([request.params.id])
       response.status(204).end()
     } catch (error) {
       next(error)
@@ -166,6 +170,18 @@ export function createApp({
   app.post('/api/generate', async (request, response, next) => {
     try {
       response.json(await generationService.generateBatch(request.body))
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.get('/api/jobs', (_request, response) => {
+    response.set('Cache-Control', 'no-store').json(generationQueue.list())
+  })
+
+  app.post('/api/jobs', async (request, response, next) => {
+    try {
+      response.status(202).json(await generationQueue.submit(request.body))
     } catch (error) {
       next(error)
     }

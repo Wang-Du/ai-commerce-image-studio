@@ -10,6 +10,7 @@ import { createHistoryRepository } from '../../server/history-repository.js'
 import { createSettingsStore } from '../../server/settings-store.js'
 import { createGenerationService } from '../../server/generation-service.js'
 import { createApp } from '../../server/create-app.js'
+import { createGenerationQueue } from '../../server/generation-queue.js'
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3rQAAAAASUVORK5CYII='
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -56,6 +57,7 @@ async function withServer(run, { agentConnected = true } = {}) {
     assetStore,
     historyRepository,
     generationService,
+    generationQueue: await createGenerationQueue({ filePath: path.join(root, 'jobs.json'), generationService, historyRepository }),
     desktopAgentService,
     providerFactory,
     publicDir: projectDir,
@@ -72,6 +74,53 @@ async function withServer(run, { agentConnected = true } = {}) {
     await fs.rm(root, { recursive: true, force: true })
   }
 }
+
+test('submits a persistent background job and reads its results from a fresh request', async () => {
+  await withServer(async ({ baseUrl, settingsStore, assetStore }) => {
+    await settingsStore.update({ source: 'demo' })
+    const bytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: 'red' } }).png().toBuffer()
+    const asset = await assetStore.createFromDataUrl({ name: '后台测试.png', dataUrl: `data:image/png;base64,${bytes.toString('base64')}` })
+    const response = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assetId: asset.id, tasks: [{ id: 't', type: 'feature', ratio: '1:1', width: 1200, height: 1200, quantity: 1 }] }),
+    })
+    assert.equal(response.status, 202)
+    const accepted = await response.json()
+    assert.equal(accepted.status, 'queued')
+    let job
+    for (let i = 0; i < 100; i++) {
+      const jobs = await (await fetch(`${baseUrl}/api/jobs`)).json()
+      job = jobs.find((item) => item.id === accepted.id)
+      if (job.status === 'done') break
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(job.status, 'done')
+    const image = await fetch(`${baseUrl}${job.results[0].imageUrl}`)
+    assert.equal(image.status, 200)
+    const meta = await sharp(Buffer.from(await image.arrayBuffer())).metadata()
+    assert.deepEqual([meta.width, meta.height], [1200, 1200])
+    const deleted = await fetch(`${baseUrl}/api/history/${accepted.id}`, { method: 'DELETE' })
+    assert.equal(deleted.status, 204)
+    assert.deepEqual(await (await fetch(`${baseUrl}/api/jobs`)).json(), [])
+    assert.deepEqual(await (await fetch(`${baseUrl}/api/history`)).json(), [])
+  })
+})
+
+test('clearing history also removes completed background jobs from subsequent reads', async () => {
+  await withServer(async ({ baseUrl, settingsStore, assetStore }) => {
+    await settingsStore.update({ source: 'codex' })
+    const asset = await assetStore.createFromDataUrl({ name: '商品.png', dataUrl: PNG_DATA_URL })
+    await fetch(`${baseUrl}/api/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assetId: asset.id, tasks: [{ id: 't', type: 'feature', ratio: '1:1', width: 1200, height: 1200, quantity: 1 }] }) })
+    for (let i = 0; i < 100; i++) {
+      const jobs = await (await fetch(`${baseUrl}/api/jobs`)).json()
+      if (jobs[0].status === 'done') break
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal((await (await fetch(`${baseUrl}/api/history`)).json()).length, 1)
+    assert.equal((await fetch(`${baseUrl}/api/history`, { method: 'DELETE' })).status, 204)
+    assert.deepEqual(await (await fetch(`${baseUrl}/api/jobs`)).json(), [])
+  })
+})
 
 test('serves the application and health information from one origin', async () => {
   await withServer(async ({ baseUrl }) => {

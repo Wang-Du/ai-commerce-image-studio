@@ -5,6 +5,7 @@ import { createAssetStore } from './asset-store.js'
 import { createHistoryRepository } from './history-repository.js'
 import { createOpenAIImageProvider } from './openai-image-provider.js'
 import { createGenerationService } from './generation-service.js'
+import { createGenerationQueue } from './generation-queue.js'
 import { createDesktopAgentService } from './desktop-agent-service.js'
 import { createCodexImageProvider } from './codex-image-provider.js'
 import { createApp } from './create-app.js'
@@ -38,6 +39,7 @@ const app = createApp({
   assetStore,
   historyRepository,
   generationService,
+  generationQueue: await createGenerationQueue({ filePath: path.join(localDir, 'jobs.json'), generationService, historyRepository }),
   desktopAgentService,
   providerFactory,
   publicDir: projectDir,

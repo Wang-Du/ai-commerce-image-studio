@@ -11,7 +11,7 @@ import {
   removeTask,
 } from './task-model.js'
 import { ApiGatewayClient } from './api-client.js'
-import { beginTaskGeneration, mergeTaskGenerationState } from './frontend-state.js'
+import { mergeTaskGenerationState, reconcileBackgroundJobs } from './frontend-state.js'
 import { canSelectSource, getRequiredSetup, getSourcePresentation } from './ai-source.js'
 
 const TASK_STORAGE_KEY = 'commerce-image-workspace-v2'
@@ -39,7 +39,14 @@ let generationFailures = []
 let activeTaskId = tasks[0].id
 let activeResult = 'all'
 let activeView = 'workspace'
-let isGenerating = false
+let isSubmitting = false
+let backgroundJobs = []
+let backgroundJobsMarkup = null
+let queueRevision = 0
+let queueOnline = true
+let queuePolling = false
+let queueTimer = null
+let pinnedHistory = false
 let pendingHandoff = null
 let pendingResultFiles = []
 let pendingGenerationTaskIds = []
@@ -92,11 +99,12 @@ function navigateTo(viewName) {
   document.querySelectorAll('[data-view-panel]').forEach((panel) => {
     panel.hidden = panel.dataset.viewPanel !== activeView
   })
-  document.querySelectorAll('.main-nav [data-view-target]').forEach((button) => {
+  document.querySelectorAll('.main-nav [data-view-target], #backgroundJobsButton').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.viewTarget === activeView)
   })
   if (activeView === 'library') renderLibrary()
   if (activeView === 'history') renderHistory()
+  if (activeView === 'jobs') renderBackgroundJobs()
 }
 
 function formatDate(value) {
@@ -157,6 +165,8 @@ function renderLibrary() {
       saveSelectedAsset()
       generatedResults = []
       generationFailures = []
+      pinnedHistory = false
+      tasks = tasks.map((task) => ({ ...task, status: 'ready', progress: 0 }))
       render()
       navigateTo('workspace')
       showToast('已选择该商品素材')
@@ -169,7 +179,13 @@ function renderLibrary() {
       try {
         await client.deleteAsset(asset.id)
         assets = assets.filter((item) => item.id !== asset.id)
-        if (selectedAssetId === asset.id) selectedAssetId = assets[0]?.id || null
+        if (selectedAssetId === asset.id) {
+          selectedAssetId = assets[0]?.id || null
+          generatedResults = []
+          generationFailures = []
+          pinnedHistory = false
+          tasks = tasks.map((task) => ({ ...task, status: 'ready', progress: 0 }))
+        }
         saveSelectedAsset()
         render()
         renderLibrary()
@@ -183,6 +199,7 @@ function renderLibrary() {
 
 function restoreHistoryRecord(record) {
   if (!record) return
+  pinnedHistory = true
   tasks = mergeTaskGenerationState(
     normalizeStoredTasks(record.tasks),
     record.results || [],
@@ -206,7 +223,7 @@ function closeHistoryDetail() {
 }
 
 function openHistoryDetail(recordId) {
-  const record = historyRecords.find((item) => item.id === recordId)
+  const record = historyRecords.find((item) => item.id === recordId) || backgroundJobs.find((item) => item.id === recordId)
   if (!record) return
   activeHistoryRecordId = record.id
   const results = record.results || []
@@ -268,6 +285,7 @@ function renderHistory() {
       try {
         await client.deleteHistory(button.dataset.deleteHistory)
         historyRecords = historyRecords.filter((record) => record.id !== button.dataset.deleteHistory)
+        backgroundJobs = backgroundJobs.filter((job) => job.id !== button.dataset.deleteHistory)
         renderHistory()
         showToast('生成记录已删除')
       } catch (error) {
@@ -275,6 +293,79 @@ function renderHistory() {
       }
     })
   })
+}
+
+function syncDraftJobs() {
+  if (pinnedHistory) return
+  const next = reconcileBackgroundJobs({ tasks, assetId: selectedAssetId, jobs: backgroundJobs, results: generatedResults, failures: generationFailures })
+  tasks = next.tasks
+  generatedResults = next.results
+  generationFailures = next.failures
+}
+
+function renderBackgroundJobs() {
+  const labels = { queued: '排队中', running: '生成中', done: '已完成', partial: '部分完成', error: '生成失败' }
+  const activeCount = backgroundJobs.filter((job) => ['queued', 'running'].includes(job.status)).length
+  $('#backgroundJobsButton').textContent = queueOnline ? `后台任务${activeCount ? ` · ${activeCount}` : ''}` : '后台任务 · 连接中断'
+  $('#backgroundJobsButton').classList.toggle('has-active-jobs', activeCount > 0)
+  $('#backgroundJobsStatus').textContent = !queueOnline
+    ? '暂时无法读取进度，正在自动重连。请确认本地启动窗口仍在运行；不要重复提交同一批任务。'
+    : activeCount ? `${activeCount} 批任务处理中。可以继续编辑、换商品和提交新批次，后台会依次生成。` : '没有正在等待的任务。回到工作台即可提交新批次。'
+  const markup = backgroundJobs.map((job) => {
+    const isActive = ['queued', 'running'].includes(job.status)
+    const doneCount = job.results.length + job.failures.length
+    const percent = Math.round(doneCount / job.imageCount * 100)
+    const detail = job.status === 'queued' ? '等待前面的批次完成'
+      : job.status === 'running' && doneCount === 0 ? 'AI 正在处理，尚未返回图片'
+        : `${job.results.length} 张成功${job.failures.length ? ` · ${job.failures.length} 张失败` : ''}`
+    return `<article class="background-job" data-job-status="${job.status}">
+      <div class="background-job-heading"><strong>${escapeHtml(job.assetName)}</strong><span>${labels[job.status] || '未知状态'}</span></div>
+      <p>${formatDate(job.submittedAt || job.createdAt)} · ${job.taskCount} 个任务 · ${job.imageCount} 张图 · ${escapeHtml(sourceLabel(job.source, job.model))}</p>
+      <div class="background-job-progress"><span>${detail}</span><span>${doneCount} / ${job.imageCount} 张已处理</span></div>
+      <progress max="100" value="${percent}" aria-label="已处理 ${doneCount} / ${job.imageCount} 张"></progress>
+      ${job.failures.length ? `<p class="background-job-error">${escapeHtml(job.failures[0].message)}</p>` : ''}
+      ${!isActive || job.results.length ? `<button class="secondary-button" data-job-detail="${job.id}">${isActive ? '查看已完成图片' : '查看结果与参数'}</button>` : ''}
+    </article>`
+  }).join('')
+  if (markup === backgroundJobsMarkup) return
+  backgroundJobsMarkup = markup
+  $('#backgroundJobsList').innerHTML = markup
+  $('#backgroundJobsList').querySelectorAll('[data-job-detail]').forEach((button) => {
+    button.addEventListener('click', () => openHistoryDetail(button.dataset.jobDetail))
+  })
+}
+
+async function pollBackgroundJobs() {
+  if (queuePolling) return
+  window.clearTimeout(queueTimer)
+  queuePolling = true
+  const revision = queueRevision
+  try {
+    const [jobs, history] = await Promise.all([client.listGenerationJobs(), client.listHistory()])
+    if (revision !== queueRevision) return
+    const finished = jobs.filter((job) => !['queued', 'running'].includes(job.status)
+      && backgroundJobs.some((old) => old.id === job.id && ['queued', 'running'].includes(old.status)))
+    const changed = JSON.stringify(jobs) !== JSON.stringify(backgroundJobs)
+    const historyChanged = JSON.stringify(history) !== JSON.stringify(historyRecords)
+    backgroundJobs = jobs
+    historyRecords = history
+    queueOnline = true
+    if (changed) {
+      syncDraftJobs()
+      // Do not re-render the editor or settings: polling must never steal typed text or focus.
+      renderTaskList()
+      renderResults()
+    }
+    if (historyChanged && activeView === 'history') renderHistory()
+    if (finished.length) showToast(`${finished.length} 批后台任务已结束，结果和失败项可在“后台任务”查看`, 4500)
+  } catch {
+    queueOnline = false
+  } finally {
+    queuePolling = false
+    renderSummary()
+    if (activeView === 'jobs') renderBackgroundJobs()
+    queueTimer = window.setTimeout(pollBackgroundJobs, queueOnline ? 2000 : 5000)
+  }
 }
 
 function renderApiSettings() {
@@ -354,6 +445,8 @@ function renderTaskList() {
         ? '部分完成'
         : task.status === 'generating'
           ? '生成中'
+          : task.status === 'queued'
+            ? '排队中'
           : task.status === 'error'
             ? '生成失败'
             : '待生成'
@@ -418,7 +511,7 @@ function renderArtboard(task) {
   const source = selectedAsset()?.url || DEFAULT_PRODUCT_SOURCE
   const sharedContent = `
     <img src="${source}" alt="商品创意预览" />
-    <div class="progress-card"><div class="progress-copy"><span>正在调用图片模型</span><span>${task.progress || 20}%</span></div><div class="progress-track"><i style="width:${task.progress || 20}%"></i></div></div>
+    <div class="progress-card"><div class="progress-copy"><span>${task.status === 'queued' ? '已加入后台队列' : '后台正在生成'}</span><span>${task.progress ? `${task.progress}% 已处理` : '等待图片返回'}</span></div><div class="progress-track"><i style="width:${task.progress || 0}%"></i></div></div>
   `
   const ratioStyle = `--output-ratio:${task.width}/${task.height}`
   if (task.type === 'feature') return `<div class="artboard feature-art" style="${ratioStyle}"><span class="art-kicker">PRODUCT BENEFITS</span><h3 class="art-title">卖点清楚，<br>商品保持真实</h3>${sharedContent}<span class="ingredient one">核心卖点</span><span class="ingredient two">清爽质感</span></div>`
@@ -429,7 +522,7 @@ function renderArtboard(task) {
 function renderAssetCard(task, index) {
   const result = generatedResults.find((item) => item.taskId === task.id && item.index === index)
   const failure = generationFailures.find((item) => item.taskId === task.id && item.index === index)
-  const stateLabel = result ? '已生成' : failure ? '生成失败' : task.status === 'generating' ? '生成中' : '待生成'
+  const stateLabel = result ? '已生成' : failure ? '生成失败' : task.status === 'generating' ? '生成中' : task.status === 'queued' ? '排队中' : '待生成'
   const ratioStyle = `--output-ratio:${task.width}/${task.height}`
   const resultSource = result?.source || (result?.mode === 'api' ? 'openai' : result?.mode || 'demo')
   const body = result
@@ -473,22 +566,23 @@ function renderSummary() {
   $('#taskSummary').textContent = `${tasks.length} 个任务 · ${totalImages} 张图`
   $('#creditCount').textContent = totalImages
   $('#imageCount').textContent = `${totalImages} 张`
-  $('#generateLabel').textContent = isGenerating
-    ? apiSettings.source === 'codex'
-      ? 'Codex 正在生成'
-      : '正在调用图片模型'
+  const activeCount = backgroundJobs.filter((job) => ['queued', 'running'].includes(job.status)).length
+  $('#generateLabel').textContent = isSubmitting
+    ? '正在提交'
+    : activeCount ? '继续提交新一批'
     : apiSettings.source === 'demo'
       ? '生成演示图'
       : '一键生成'
-  $('#queueText').textContent = isGenerating
-    ? apiSettings.source === 'codex'
-      ? `Codex 正在生成 ${totalImages} 张图，通常需要几分钟，请保持页面打开`
-      : `${tasks.length} 个任务正在处理，请保持页面打开`
+  $('#queueText').textContent = activeCount
+    ? `后台有 ${activeCount} 批任务 · 可以继续编辑和提交新批次`
     : `${tasks.length} 个任务已就绪 · 点击一次生成 ${totalImages} 张图片`
-  $('#generateAllButton').disabled = isGenerating || tasks.length === 0
+  $('#generateAllButton').disabled = isSubmitting || tasks.length === 0
+  $('#backgroundJobsButton').textContent = queueOnline ? `后台任务${activeCount ? ` · ${activeCount}` : ''}` : '后台任务 · 连接中断'
+  $('#backgroundJobsButton').classList.toggle('has-active-jobs', activeCount > 0)
 }
 
 function render() {
+  syncDraftJobs()
   renderSource()
   renderTaskList()
   renderEditor()
@@ -530,7 +624,7 @@ async function startHandoff(requestedTasks) {
     openSettings('请先测试 Codex 桌面 Agent 连通性，通过后再选择。')
     return
   }
-  isGenerating = true
+  isSubmitting = true
   render()
   try {
     pendingHandoff = await client.createHandoff({ source, assetId: selectedAssetId, tasks: requestedTasks })
@@ -548,7 +642,7 @@ async function startHandoff(requestedTasks) {
   } catch (error) {
     showToast(error.message, 4200)
   } finally {
-    isGenerating = false
+    isSubmitting = false
     render()
   }
 }
@@ -607,7 +701,7 @@ async function importHandoffResults() {
 }
 
 async function generateTasks(requestedTasks) {
-  if (isGenerating || requestedTasks.length === 0) return
+  if (isSubmitting || requestedTasks.length === 0) return
   if (!selectedAsset()) {
     navigateTo('library')
     return showToast('请先导入并选择一张商品素材')
@@ -620,47 +714,32 @@ async function generateTasks(requestedTasks) {
       : '填写 API Key 并保存后，工作台会自动继续这次生成。')
     return
   }
-  const requestedIds = new Set(requestedTasks.map((task) => task.id))
-  isGenerating = true
-  const generationState = beginTaskGeneration({
-    tasks,
-    results: generatedResults,
-    failures: generationFailures,
-    taskIds: [...requestedIds],
-  })
-  tasks = generationState.tasks
-  generatedResults = generationState.results
-  generationFailures = generationState.failures
-  $('#canvasTitle').textContent = '正在生成真实图片'
-  render()
+  const payload = { assetId: selectedAssetId, tasks: structuredClone(requestedTasks) }
+  isSubmitting = true
+  queueRevision++
+  renderSummary()
 
   try {
-    const batch = await client.generateBatch({ assetId: selectedAssetId, tasks: requestedTasks })
-    generatedResults = [
-      ...generatedResults.filter((result) => !requestedIds.has(result.taskId)),
-      ...(batch.results || []),
-    ]
-    generationFailures = [
-      ...generationFailures.filter((failure) => !requestedIds.has(failure.taskId)),
-      ...(batch.failures || []),
-    ]
-    tasks = mergeTaskGenerationState(tasks, generatedResults, generationFailures)
-    historyRecords = [batch, ...historyRecords.filter((record) => record.id !== batch.id)]
-    const successCount = batch.results?.length || 0
-    const failureCount = batch.failures?.length || 0
-    showToast(failureCount ? `生成完成：成功 ${successCount} 张，失败 ${failureCount} 张` : `已生成 ${successCount} 张图片`)
+    const job = await client.submitGeneration(payload)
+    backgroundJobs = [job, ...backgroundJobs.filter((item) => item.id !== job.id)]
+    pinnedHistory = false
+    queueOnline = true
+    syncDraftJobs()
+    renderTaskList()
+    renderResults()
+    showToast(`已提交 ${job.imageCount} 张图片到后台，可继续创建并提交新任务`, 4000)
   } catch (error) {
-    tasks = tasks.map((task) => requestedIds.has(task.id) ? { ...task, status: 'error', progress: 0 } : task)
     if (error.code === 'MODEL_NOT_CONFIGURED' || error.code === 'AGENT_TEST_REQUIRED') {
       pendingGenerationTaskIds = requestedTasks.map((task) => task.id)
       openSettings(`${error.message}，保存后会自动继续。`)
     }
-    else showToast(error.message, 4200)
+    else showToast(error.status ? error.message : '提交响应中断，请先到“后台任务”确认是否已收到，再决定是否重新提交。', 6000)
   } finally {
-    isGenerating = false
-    $('#canvasTitle').textContent = '创意画布'
-    saveTasks()
-    render()
+    isSubmitting = false
+    queueRevision++
+    renderSummary()
+    if (activeView === 'jobs') renderBackgroundJobs()
+    void pollBackgroundJobs()
   }
 }
 
@@ -682,6 +761,8 @@ async function uploadSelectedFile(file) {
   saveSelectedAsset()
   generatedResults = []
   generationFailures = []
+  pinnedHistory = false
+  tasks = tasks.map((task) => ({ ...task, status: 'ready', progress: 0 }))
   render()
   if (activeView === 'library') renderLibrary()
   showToast('素材已保存并设为当前商品')
@@ -772,7 +853,7 @@ $('#helpBackdrop').addEventListener('click', closeHelp)
 $('#closeHistoryDetailButton').addEventListener('click', closeHistoryDetail)
 $('#historyDetailBackdrop').addEventListener('click', closeHistoryDetail)
 $('#reuseHistoryDetailButton').addEventListener('click', () => {
-  const record = historyRecords.find((item) => item.id === activeHistoryRecordId)
+  const record = historyRecords.find((item) => item.id === activeHistoryRecordId) || backgroundJobs.find((item) => item.id === activeHistoryRecordId)
   closeHistoryDetail()
   restoreHistoryRecord(record)
 })
@@ -822,6 +903,7 @@ $('#clearHistoryButton').addEventListener('click', async () => {
   try {
     await client.clearHistory()
     historyRecords = []
+    backgroundJobs = backgroundJobs.filter((job) => ['queued', 'running'].includes(job.status))
     renderHistory()
     showToast('生成记录已清空')
   } catch (error) {
@@ -926,25 +1008,25 @@ async function bootstrap() {
   renderHistory()
   navigateTo(activeView)
   try {
-    const [settings, storedAssets, storedHistory, storedAgentStatus] = await Promise.all([
+    const [settings, storedAssets, storedHistory, storedAgentStatus, storedJobs] = await Promise.all([
       client.getSettings(),
       client.listAssets(),
       client.listHistory(),
       client.getDesktopAgentStatus(),
+      client.listGenerationJobs(),
     ])
     apiSettings = { ...settings, source: settings.source || (settings.mode === 'demo' ? 'demo' : 'openai') }
     settingsDraft = { ...apiSettings }
     agentStatus = storedAgentStatus
     assets = storedAssets
     historyRecords = storedHistory
+    backgroundJobs = storedJobs
     if (!assets.some((asset) => asset.id === selectedAssetId)) selectedAssetId = assets[0]?.id || null
     saveSelectedAsset()
-    const latest = historyRecords[0]
-    if (latest && latest.assetId === selectedAssetId) {
-      generatedResults = latest.results || []
-      generationFailures = latest.failures || []
-      tasks = mergeTaskGenerationState(tasks, generatedResults, generationFailures)
-    }
+    const restored = reconcileBackgroundJobs({ tasks, assetId: selectedAssetId, jobs: [...backgroundJobs, ...historyRecords] })
+    tasks = restored.tasks
+    generatedResults = restored.results
+    generationFailures = restored.failures
     render()
     renderLibrary()
     renderHistory()
@@ -952,6 +1034,8 @@ async function bootstrap() {
   } catch (error) {
     $('#modelModeBadge').textContent = '本地服务异常'
     showToast(`无法连接本地服务：${error.message}`, 6000)
+  } finally {
+    queueTimer = window.setTimeout(pollBackgroundJobs, 2000)
   }
 }
 

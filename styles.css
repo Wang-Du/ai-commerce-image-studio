@@ -283,6 +283,22 @@ textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--focus);
 .asset-card[data-status="generating"] .artboard::after { content: ""; position: absolute; z-index: 8; inset: 0; background: linear-gradient(105deg, rgba(244, 248, 247, 0.87) 30%, rgba(255, 255, 255, 0.96) 50%, rgba(244, 248, 247, 0.87) 70%); background-size: 220% 100%; animation: sweep 1.5s ease-in-out infinite; }
 .progress-card { display: none; position: absolute; z-index: 9; right: 10%; bottom: 9%; left: 10%; color: var(--ink); }
 .asset-card[data-status="generating"] .progress-card { display: block; }
+.asset-card[data-status="queued"] .progress-card { display: block; padding: 12px; background: var(--paper); }
+.task-row[data-status="queued"] .task-status i { background: var(--amber); }
+.has-active-jobs, #backgroundJobsButton.is-active { color: var(--green-dark); background: var(--green-soft); }
+.background-jobs-status { margin: 22px 0 8px; font-size: 12px; font-weight: 600; }
+.background-jobs-note { max-width: 78ch; margin: 0 0 24px; color: var(--ink-soft); font-size: 11px; line-height: 1.7; }
+.background-jobs-list { display: grid; gap: 12px; max-width: 1000px; }
+.background-job { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.background-job-heading, .background-job-progress { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.background-job-heading strong { min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.background-job-heading > span { flex-shrink: 0; color: var(--green-dark); font-size: 12px; }
+.background-job > p { color: var(--ink-soft); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.background-job-progress { margin-top: 18px; color: var(--ink-soft); font-size: 11px; }
+.background-job progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--green); }
+.background-job .secondary-button { margin-top: 14px; }
+.background-job .background-job-error, .background-job[data-job-status="error"] .background-job-heading > span { color: #8c3d37; }
+@media (max-width: 1024px) { .header-actions .save-state, .header-actions .demo-badge { display: none; } }
 .progress-copy { display: flex; justify-content: space-between; font-size: 8px; font-weight: 750; }
 .progress-track { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 4px; background: rgba(255, 255, 255, 0.9); }
 .progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--green); }
