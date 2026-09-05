@@ -2,6 +2,12 @@
 
 一个可以在本机真实运行的 AI 电商商品图工作台。同一个商品可以建立多个独立任务，分别选择图片类型、输出比例、准确像素、提示词和生成数量，然后一起调用图片模型。
 
+## 下载即用
+
+**[下载作品集完整 ZIP（v1.0.0）](https://github.com/Amentman/ai-commerce-image-studio/releases/download/v1.0.0/ai-commerce-image-studio-v1.0.0.zip)** · [查看版本说明](https://github.com/Amentman/ai-commerce-image-studio/releases/tag/v1.0.0)
+
+安装 Node.js 20 或更高版本后，解压 ZIP，在 macOS 双击 `启动 AI 商品图生成器.command`。首次启动会自动安装依赖并打开工作台；没有 API 时可先选择“演示模式”体验完整流程。
+
 ![AI 商品图生成器工作台](docs/screenshots/workbench-overview.png)
 
 ## 已实现能力
