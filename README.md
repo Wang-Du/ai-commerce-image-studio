@@ -4,7 +4,7 @@
 
 ## 下载即用
 
-**[下载作品集完整 ZIP（v1.1.0）](https://github.com/Amentman/ai-commerce-image-studio/releases/download/v1.1.0/ai-commerce-image-studio-v1.1.0.zip)** · [查看版本说明](https://github.com/Amentman/ai-commerce-image-studio/releases/tag/v1.1.0)
+从本仓库页面点击 **Code → Download ZIP** 下载源码，或执行 `git clone https://github.com/Wang-Du/ai-commerce-image-studio.git`。
 
 安装 Node.js 20 或更高版本后，解压 ZIP，在 macOS 双击 `启动 AI 商品图生成器.command`。首次启动会自动安装依赖并打开工作台；没有 API 时可先选择“演示模式”体验完整流程。
 
